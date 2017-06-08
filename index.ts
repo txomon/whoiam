@@ -174,36 +174,62 @@ class AWSStore {
             this.iam_cli
                 .listUsers(params).promise()
                 .then((value: AWS.IAM.ListUsersResponse) => {
-                    var policies = new Map<string, object>()
+                    var users = new Map<string, object>()
                     if (value.Users) {
                         for (let iamUser of value.Users) {
                             if (!iamUser.UserName) {
                                 console.log(`Policy ${iamUser} is not created`)
                                 continue
                             }
-                            policies.set(iamUser.UserName, iamUser)
+                            users.set(iamUser.UserName, iamUser)
                         }
                     }
                     if (value.IsTruncated) {
                         this.fetchPolicies(value.Marker).then((subvalue) => {
-                            policies = new Map([...policies, ...subvalue])
-                            resolve(policies)
+                            users = new Map([...users, ...subvalue])
+                            resolve(users)
                         })
                     } else {
-                        resolve(policies)
+                        resolve(users)
                     }
                 })
         })
     }
 
-    fetchGroups(): Promise<AWS.IAM.ListGroupsResponse> {
+    fetchGroups(marker?: string): Promise<Map<string, object>>{
+        var params: AWS.IAM.ListGroupsRequest = {MaxItems: 1000}
+        if (marker != null) {
+            params.Marker = marker
+        }
 
+        return new Promise((resolve, reject) => {
+            this.iam_cli
+                .listGroups(params).promise()
+                .then((value: AWS.IAM.ListGroupsResponse) => {
+                    var groups = new Map<string, object>()
+                    if (value.Groups) {
+                        for (let iamGroup of value.Groups) {
+                            if (!iamGroup.GroupName) {
+                                console.log(`Policy ${iamGroup} is not created`)
+                                continue
+                            }
+                            groups.set(iamGroup.GroupName, iamGroup)
+                        }
+                    }
+                    if (value.IsTruncated) {
+                        this.fetchPolicies(value.Marker).then((subvalue) => {
+                            groups = new Map([...groups, ...subvalue])
+                            resolve(groups)
+                        })
+                    } else {
+                        resolve(groups)
+                    }
+                })
+        })
     }
 
-    refreshStore() {
 
-    }
+    refreshStore(){
 
-    listUsers(): User[] {
     }
 }
