@@ -2,6 +2,10 @@
 # yarn lockfile v1
 
 
+"@types/node@^7.0.29":
+  version "7.0.29"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-7.0.29.tgz#ccfcec5b7135c7caf6c4ffb8c7f33102340d99df"
+
 ansi-regex@^2.0.0:
   version "2.1.1"
   resolved "https://registry.yarnpkg.com/ansi-regex/-/ansi-regex-2.1.1.tgz#c3b33ab5ee360d86e0e628f0468ae7ef27d654df"
@@ -36,9 +40,9 @@ array-unique@^0.2.1:
   version "0.2.1"
   resolved "https://registry.yarnpkg.com/array-unique/-/array-unique-0.2.1.tgz#a1d97ccafcbc2625cc70fadceb36a50c58b01a53"
 
-aws-sdk@^2.64.0:
-  version "2.64.0"
-  resolved "https://registry.yarnpkg.com/aws-sdk/-/aws-sdk-2.64.0.tgz#365da7d8c7f3ed64c220d5f73afd78620c4923a3"
+aws-sdk@^2.65.0:
+  version "2.65.0"
+  resolved "https://registry.yarnpkg.com/aws-sdk/-/aws-sdk-2.65.0.tgz#fb3ee1d565114f69a1a9bb2311b829b59c7c6e8f"
   dependencies:
     buffer "5.0.6"
     crypto-browserify "1.0.9"
@@ -1024,8 +1028,8 @@ regex-cache@^0.4.2:
     is-primitive "^2.0.0"
 
 remove-trailing-separator@^1.0.1:
-  version "1.0.1"
-  resolved "https://registry.yarnpkg.com/remove-trailing-separator/-/remove-trailing-separator-1.0.1.tgz#615ebb96af559552d4bf4057c8436d486ab63cc4"
+  version "1.0.2"
+  resolved "https://registry.yarnpkg.com/remove-trailing-separator/-/remove-trailing-separator-1.0.2.tgz#69b062d978727ad14dc6b56ba4ab772fd8d70511"
 
 repeat-element@^1.1.2:
   version "1.1.2"
