@@ -124,165 +124,175 @@ class Group {
 
 class AWSStore {
     iam_cli: AWS.IAM;
-    policies: Map<string, AWS.IAM.Policy>;
-    users: Map<string, AWS.IAM.User>;
-    groups: Map<string, AWS.IAM.Group>;
+    policies: AWS.IAM.Policy[];
+    users: Map<AWS.IAM.User, string[]>;
+    groups: Map<AWS.IAM.User, string[]>;
 
     constructor() {
         this.iam_cli = new AWS.IAM()
-        this.policies = new Map()
+        this.policies = []
         this.users = new Map()
         this.groups = new Map()
     }
 
-    fetchPolicies(marker?: string): Promise<Map<string, object>> {
+    awsListPolicies(marker?: string): RX.Observable<AWS.IAM.Policy[]> {
         var params: AWS.IAM.ListPoliciesRequest = { MaxItems: 1000 }
         if (marker != null) {
             params.Marker = marker
         }
-        return new Promise((resolve, reject) => {
-            this.iam_cli
-                .listPolicies(params).promise()
-                .then((value: AWS.IAM.ListPoliciesResponse) => {
-                    var policies = new Map<string, object>()
-                    if (value.Policies) {
-                        for (let iamPolicy of value.Policies) {
-                            if (!iamPolicy.PolicyName) {
-                                console.log(`Policy ${iamPolicy} is not created`)
-                                continue
-                            }
-                            policies.set(iamPolicy.PolicyName, iamPolicy)
+        return RX.Observable.fromPromise(this.iam_cli.listPolicies(params).promise())
+            .concatMap((value, index) => {
+                if (value.IsTruncated) {
+                    return RX.Observable.zip(
+                        RX.Observable.of(value.Policies),
+                        this.awsListPolicies(value.Marker),
+                        (input: Policy[], output: Policy[]) => {
+                            var series: AWS.IAM.Policy[] = [];
+                            return series.concat(...input, ...output)
                         }
-                    }
-                    if (value.IsTruncated) {
-                        this.fetchPolicies(value.Marker).then((subvalue) => {
-                            policies = new Map([...policies, ...subvalue])
-                            resolve(policies)
-                        })
-                    } else {
-                        resolve(policies)
-                    }
-                })
-        })
+                    )
+                } else {
+                    return RX.Observable.of(value.Policies)
+                }
+            })
     }
 
-    fetchUsers(marker?: string): Promise<Map<string, object>> {
+
+    awsListUsers(marker?: string): RX.Observable<AWS.IAM.User[]> {
         var params: AWS.IAM.ListUsersRequest = { MaxItems: 1000 }
         if (marker != null) {
             params.Marker = marker
         }
-        return new Promise((resolve, reject) => {
-            this.iam_cli
-                .listUsers(params).promise()
-                .then((value: AWS.IAM.ListUsersResponse) => {
-                    var users = new Map<string, object>()
-                    if (value.Users) {
-                        for (let iamUser of value.Users) {
-                            if (!iamUser.UserName) {
-                                console.log(`Policy ${iamUser} is not created`)
-                                continue
-                            }
-                            users.set(iamUser.UserName, iamUser)
+        return RX.Observable.fromPromise(this.iam_cli.listUsers(params).promise())
+            .concatMap((value, index) => {
+                if (value.IsTruncated) {
+                    return RX.Observable.zip(
+                        RX.Observable.of(value.Users),
+                        this.awsListUsers(value.Marker),
+                        (input: AWS.IAM.User[], output: AWS.IAM.User[]) => {
+                            var series: AWS.IAM.User[] = [];
+                            return series.concat(...input, ...output)
                         }
-                    }
-                    if (value.IsTruncated) {
-                        this.fetchPolicies(value.Marker).then((subvalue) => {
-                            users = new Map([...users, ...subvalue])
-                            resolve(users)
-                        })
-                    } else {
-                        resolve(users)
-                    }
-                })
-        })
+                    )
+                } else {
+                    return RX.Observable.of(value.Users)
+                }
+            })
     }
 
-    fetchGroups(marker?: string): Promise<Map<string, object>> {
+
+    awsListGroups(marker?: string): RX.Observable<AWS.IAM.Group[]> {
         var params: AWS.IAM.ListGroupsRequest = { MaxItems: 1000 }
         if (marker != null) {
             params.Marker = marker
         }
-
-        return new Promise((resolve, reject) => {
-            this.iam_cli
-                .listGroups(params).promise()
-                .then((value: AWS.IAM.ListGroupsResponse) => {
-                    var groups = new Map<string, object>()
-                    if (value.Groups) {
-                        for (let iamGroup of value.Groups) {
-                            if (!iamGroup.GroupName) {
-                                console.log(`Policy ${iamGroup} is not created`)
-                                continue
-                            }
-                            groups.set(iamGroup.GroupName, iamGroup)
+        return RX.Observable.fromPromise(this.iam_cli.listGroups(params).promise())
+            .concatMap((value, index) => {
+                if (value.IsTruncated) {
+                    return RX.Observable.zip(
+                        RX.Observable.of(value.Groups),
+                        this.awsListGroups(value.Marker),
+                        (input: AWS.IAM.Group[], output: AWS.IAM.Group[]) => {
+                            var series: AWS.IAM.Group[] = [];
+                            return series.concat(...input, ...output)
                         }
+                    )
+                } else {
+                    return RX.Observable.of(value.Groups)
+                }
+            })
+    }
+
+    awsListAttachedUserPolicies(username: string, marker?: string): RX.Observable<string[]> {
+        var params: AWS.IAM.ListAttachedUserPoliciesRequest = { MaxItems: 1000, UserName: username }
+        if (marker) {
+            params.Marker = marker
+        }
+        return RX.Observable.fromPromise(this.iam_cli.listAttachedUserPolicies(params).promise())
+            .concatMap((value, index) => {
+                if (!value.AttachedPolicies) {
+                    return RX.Observable.of([])
+                }
+                var policies: string[] = []
+                for (let attachedPolicy of value.AttachedPolicies) {
+                    if (!attachedPolicy.PolicyArn) {
+                        console.log(`${username} UserPolicyAttachment doens't have ARN => ${attachedPolicy.PolicyName}(arn:${attachedPolicy.PolicyArn})`)
+                        continue
                     }
-                    if (value.IsTruncated) {
-                        this.fetchPolicies(value.Marker).then((subvalue) => {
-                            groups = new Map([...groups, ...subvalue])
-                            resolve(groups)
-                        })
-                    } else {
-                        resolve(groups)
+                    policies.push(attachedPolicy.PolicyArn)
+                }
+                if (value.IsTruncated) {
+                    return RX.Observable.zip(
+                        RX.Observable.of(policies),
+                        this.awsListAttachedUserPolicies(username, value.Marker),
+                        (input: string[], output: string[]) => {
+                            var series: string[] = [];
+                            return series.concat(...input, ...output)
+                        }
+                    )
+                } else {
+                    return RX.Observable.of(policies)
+                }
+            })
+    }
+
+    awsListAttachedGroupPolicies(groupname: string, marker?: string): RX.Observable<string[]> {
+        var params: AWS.IAM.ListAttachedGroupPoliciesRequest = { MaxItems: 1000, GroupName: groupname }
+        if (marker) {
+            params.Marker = marker
+        }
+        return RX.Observable.fromPromise(this.iam_cli.listAttachedGroupPolicies(params).promise())
+            .concatMap((value, index) => {
+                if (!value.AttachedPolicies) {
+                    return RX.Observable.of([])
+                }
+                var policies: string[] = []
+                for (let attachedPolicy of value.AttachedPolicies) {
+                    if (!attachedPolicy.PolicyArn) {
+                        console.log(`${groupname} GroupPolicyAttachment doens't have ARN => ${attachedPolicy.PolicyName}(arn:${attachedPolicy.PolicyArn})`)
+                        continue
                     }
-                })
-        })
+                    policies.push(attachedPolicy.PolicyArn)
+                }
+                if (value.IsTruncated) {
+                    return RX.Observable.zip(
+                        RX.Observable.of(policies),
+                        this.awsListAttachedGroupPolicies(groupname, value.Marker),
+                        (input: string[], output: string[]) => {
+                            var series: string[] = [];
+                            return series.concat(...input, ...output)
+                        }
+                    )
+                } else {
+                    return RX.Observable.of(policies)
+                }
+            })
+
+    }
+    refreshUsers(): RX.Observable<Map<AWS.IAM.User, string[]>> {
+        return this.awsListUsers()
+            .concatMap((value, index) => RX.Observable.from(value))
+            .concatMap((value: AWS.IAM.User, index) => {
+                return RX.Observable.zip(
+                    RX.Observable.of(value),
+                    this.awsListAttachedUserPolicies(value.UserName),
+                    (user: AWS.IAM.User, policies: string[]) => {
+                        return new Map([[user, policies]])
+                    }
+                )
+            })
     }
 
 
     refreshStore() {
-
     }
 }
 
-
-function listPolicies(params: { token?: string }): Promise<{ items: number[], token?: string, more: boolean }> {
-    return new Promise<{ items: number[], token?: string, more: boolean }>((resolve, reject) => {
-        if (!params.token) {
-            resolve({ items: [1, 2, 3], token: 'asdf', more: true })
-        } else if (params.token == 'asdf') {
-            resolve({ items: [4, 5, 6], token: 'dsdf', more: true })
-        } else if (params.token == 'dsdf') {
-            resolve({ items: [7, 8, 9], more: false })
-        } else {
-            resolve({ items: [0, 0, 0], more: false })
-        }
-
-    })
-}
-
-function fetchPoliciesO(token?: string): RX.Observable<number[]> {
-    // return RX.Observable.create((observer: RX.Observer<number[]>) => {
-    //     observer.next([1, 2, 3, 1, 2, 3])
-    //     observer.complete()
-    // })
-    var params: { token?: string } = {};
-    if (token) {
-        params.token = token
-    }
-
-    return RX.Observable.fromPromise(listPolicies(params))
-        .concatMap((value, index) => {
-            if (value.more) {
-                return RX.Observable.zip(
-                    RX.Observable.of(value.items),
-                    fetchPoliciesO(value.token),
-                    (input, output) => {
-                        var series: number[] = [];
-                        return series.concat(...input, ...output)
-                    }
-                )
-
-            } else {
-                return RX.Observable.of(value.items)
-            }
-        })
-}
-
-
-var observable = fetchPoliciesO()
-observable.subscribe(
-    (next) => console.log(`Received ${next}`),
-    (error) => console.log(`Error ${error}`),
+var awsstore = new AWSStore()
+awsstore
+    .refreshUsers()
+    .subscribe(
+    (next) => console.log(`Received`, next),
+    (error) => console.log(`Error`, error),
     () => console.log(`Completed`)
-)
+    )
