@@ -236,16 +236,18 @@ class AWSStore {
 }
 
 
-function listPolicies(params?: { token?: string }): Promise<{ items: number[], token?: string, more: boolean }> {
+function listPolicies(params: { token?: string }): Promise<{ items: number[], token?: string, more: boolean }> {
     return new Promise<{ items: number[], token?: string, more: boolean }>((resolve, reject) => {
-        console.log(`Params is ${params}`)
-        if (!params) {
+        if (!params.token) {
             resolve({ items: [1, 2, 3], token: 'asdf', more: true })
         } else if (params.token == 'asdf') {
-            resolve({ items: [1, 2, 3], token: 'dsdf', more: true })
+            resolve({ items: [4, 5, 6], token: 'dsdf', more: true })
         } else if (params.token == 'dsdf') {
-            resolve({ items: [1, 2, 3], more: false })
+            resolve({ items: [7, 8, 9], more: false })
+        } else {
+            resolve({ items: [0, 0, 0], more: false })
         }
+
     })
 }
 
@@ -254,23 +256,25 @@ function fetchPoliciesO(token?: string): RX.Observable<number[]> {
     //     observer.next([1, 2, 3, 1, 2, 3])
     //     observer.complete()
     // })
+    var params: { token?: string } = {};
+    if (token) {
+        params.token = token
+    }
 
-    return RX.Observable.fromPromise(listPolicies(token))
-                    .do(value => console.log(`Promise value ${value}`))
+    return RX.Observable.fromPromise(listPolicies(params))
         .concatMap((value, index) => {
-            if (value.token) {
-                console.log(`Combined value`)
+            if (value.more) {
                 return RX.Observable.zip(
                     RX.Observable.of(value.items),
                     fetchPoliciesO(value.token),
-                    (first, second) => first.concat(...second)
+                    (input, output) => {
+                        var series: number[] = [];
+                        return series.concat(...input, ...output)
+                    }
                 )
-                    .do(value => console.log(`Combined value ${value} <`))
 
             } else {
-                console.log(`Single value`)
                 return RX.Observable.of(value.items)
-                    .do(value => console.log(`Single value ${value}`))
             }
         })
 }
