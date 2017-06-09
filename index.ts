@@ -123,16 +123,20 @@ class Group {
 }
 
 class AWSStore {
-    iam_cli: AWS.IAM;
-    policies: AWS.IAM.Policy[];
-    users: Map<AWS.IAM.User, string[]>;
-    groups: Map<AWS.IAM.User, string[]>;
+    iamCli: AWS.IAM
+    policies: AWS.IAM.Policy[]
+    users: Map<AWS.IAM.User, string[]>
+    groups: Map<AWS.IAM.Group, string[]>
+    lastUpdate: number
+    delaySeconds: number
 
-    constructor() {
-        this.iam_cli = new AWS.IAM()
+    constructor(delaySeconds?: number) {
+        this.iamCli = new AWS.IAM()
         this.policies = []
         this.users = new Map()
         this.groups = new Map()
+        this.delaySeconds = delaySeconds || 300;
+        this.lastUpdate = 0;
     }
 
     awsListPolicies(marker?: string): RX.Observable<AWS.IAM.Policy[]> {
@@ -140,7 +144,7 @@ class AWSStore {
         if (marker != null) {
             params.Marker = marker
         }
-        return RX.Observable.fromPromise(this.iam_cli.listPolicies(params).promise())
+        return RX.Observable.fromPromise(this.iamCli.listPolicies(params).promise())
             .concatMap((value, index) => {
                 if (value.IsTruncated) {
                     return RX.Observable.zip(
@@ -163,7 +167,7 @@ class AWSStore {
         if (marker != null) {
             params.Marker = marker
         }
-        return RX.Observable.fromPromise(this.iam_cli.listUsers(params).promise())
+        return RX.Observable.fromPromise(this.iamCli.listUsers(params).promise())
             .concatMap((value, index) => {
                 if (value.IsTruncated) {
                     return RX.Observable.zip(
@@ -186,7 +190,7 @@ class AWSStore {
         if (marker != null) {
             params.Marker = marker
         }
-        return RX.Observable.fromPromise(this.iam_cli.listGroups(params).promise())
+        return RX.Observable.fromPromise(this.iamCli.listGroups(params).promise())
             .concatMap((value, index) => {
                 if (value.IsTruncated) {
                     return RX.Observable.zip(
@@ -208,7 +212,7 @@ class AWSStore {
         if (marker) {
             params.Marker = marker
         }
-        return RX.Observable.fromPromise(this.iam_cli.listAttachedUserPolicies(params).promise())
+        return RX.Observable.fromPromise(this.iamCli.listAttachedUserPolicies(params).promise())
             .concatMap((value, index) => {
                 if (!value.AttachedPolicies) {
                     return RX.Observable.of([])
@@ -241,7 +245,7 @@ class AWSStore {
         if (marker) {
             params.Marker = marker
         }
-        return RX.Observable.fromPromise(this.iam_cli.listAttachedGroupPolicies(params).promise())
+        return RX.Observable.fromPromise(this.iamCli.listAttachedGroupPolicies(params).promise())
             .concatMap((value, index) => {
                 if (!value.AttachedPolicies) {
                     return RX.Observable.of([])
@@ -281,10 +285,40 @@ class AWSStore {
                     }
                 )
             })
+            .reduce((acc: Map<AWS.IAM.User, string[]>, value: Map<AWS.IAM.User, string[]>) => {
+                return new Map([...acc, ...value])
+            })
+            .do(value => this.users = value)
     }
 
+    refreshGroups(): RX.Observable<Map<AWS.IAM.Group, string[]>> {
+        return this.awsListGroups()
+            .concatMap((value, index) => RX.Observable.from(value))
+            .concatMap((value: AWS.IAM.Group, index) => {
+                return RX.Observable.zip(
+                    RX.Observable.of(value),
+                    this.awsListAttachedGroupPolicies(value.GroupName),
+                    (group: AWS.IAM.Group, policies: string[]) => {
+                        return new Map([[group, policies]])
+                    }
+                )
+            })
+            .reduce((acc: Map<AWS.IAM.Group, string[]>, value: Map<AWS.IAM.Group, string[]>) => {
+                return new Map([...acc, ...value])
+            })
+            .do(value => this.groups = value)
+    }
 
-    refreshStore() {
+    refreshStore(): RX.Observable<boolean> {
+        return RX.Observable.zip(
+            this.refreshUsers(),
+            this.refreshGroups(),
+            this.awsListPolicies(),
+            (users, groups, policies) => {
+                this.policies = policies
+                return true
+            }
+        )
     }
 }
 
