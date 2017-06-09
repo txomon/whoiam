@@ -1,4 +1,5 @@
 import * as AWS from "aws-sdk"
+import * as RX from "rxjs"
 
 
 class Resource {
@@ -196,8 +197,8 @@ class AWSStore {
         })
     }
 
-    fetchGroups(marker?: string): Promise<Map<string, object>>{
-        var params: AWS.IAM.ListGroupsRequest = {MaxItems: 1000}
+    fetchGroups(marker?: string): Promise<Map<string, object>> {
+        var params: AWS.IAM.ListGroupsRequest = { MaxItems: 1000 }
         if (marker != null) {
             params.Marker = marker
         }
@@ -229,7 +230,55 @@ class AWSStore {
     }
 
 
-    refreshStore(){
+    refreshStore() {
 
     }
 }
+
+
+function listPolicies(params?: { token?: string }): Promise<{ items: number[], token?: string, more: boolean }> {
+    return new Promise<{ items: number[], token?: string, more: boolean }>((resolve, reject) => {
+        console.log(`Params is ${params}`)
+        if (!params) {
+            resolve({ items: [1, 2, 3], token: 'asdf', more: true })
+        } else if (params.token == 'asdf') {
+            resolve({ items: [1, 2, 3], token: 'dsdf', more: true })
+        } else if (params.token == 'dsdf') {
+            resolve({ items: [1, 2, 3], more: false })
+        }
+    })
+}
+
+function fetchPoliciesO(token?: string): RX.Observable<number[]> {
+    // return RX.Observable.create((observer: RX.Observer<number[]>) => {
+    //     observer.next([1, 2, 3, 1, 2, 3])
+    //     observer.complete()
+    // })
+
+    return RX.Observable.fromPromise(listPolicies(token))
+                    .do(value => console.log(`Promise value ${value}`))
+        .concatMap((value, index) => {
+            if (value.token) {
+                console.log(`Combined value`)
+                return RX.Observable.zip(
+                    RX.Observable.of(value.items),
+                    fetchPoliciesO(value.token),
+                    (first, second) => first.concat(...second)
+                )
+                    .do(value => console.log(`Combined value ${value} <`))
+
+            } else {
+                console.log(`Single value`)
+                return RX.Observable.of(value.items)
+                    .do(value => console.log(`Single value ${value}`))
+            }
+        })
+}
+
+
+var observable = fetchPoliciesO()
+observable.subscribe(
+    (next) => console.log(`Received ${next}`),
+    (error) => console.log(`Error ${error}`),
+    () => console.log(`Completed`)
+)
