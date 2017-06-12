@@ -1,5 +1,7 @@
 import * as AWS from "aws-sdk"
 import * as RX from "rxjs"
+import * as RD from "redux"
+import * as RO from "redux-observable"
 
 
 class Resource {
@@ -122,70 +124,84 @@ class Group {
     }
 }
 
-class AWSStore {
+class AWSBinding {
     iamCli: AWS.IAM
-    policies: AWS.IAM.Policy[]
-    users: Map<AWS.IAM.User, string[]>
-    groups: Map<AWS.IAM.Group, string[]>
+    awsStore: AWSStore
     lastUpdate: number
     delaySeconds: number
 
     constructor(delaySeconds?: number) {
         this.iamCli = new AWS.IAM()
-        this.policies = []
-        this.users = new Map()
-        this.groups = new Map()
         this.delaySeconds = delaySeconds || 300;
         this.lastUpdate = 0;
     }
 
-    awsListPolicies(marker?: string): RX.Observable<AWS.IAM.Policy[]> {
+    awsGetPolicy(): RX.Observable<AWS.IAM.Policy> {
+        return RX.Observable.fromPromise(this.iamCli.getPolicy().promise())
+            .map((value, index) => value.Policy)
+    }
+
+    awsListPolicies(marker?: string): RX.Observable<AWS.IAM.Policy> {
         var params: AWS.IAM.ListPoliciesRequest = { MaxItems: 1000 }
         if (marker != null) {
             params.Marker = marker
         }
         return RX.Observable.fromPromise(this.iamCli.listPolicies(params).promise())
             .concatMap((value, index) => {
+                var policies = value.Policies ? value.Policies : []
                 if (value.IsTruncated) {
-                    return RX.Observable.zip(
-                        RX.Observable.of(value.Policies),
-                        this.awsListPolicies(value.Marker),
-                        (input: Policy[], output: Policy[]) => {
-                            var series: AWS.IAM.Policy[] = [];
-                            return series.concat(...input, ...output)
-                        }
-                    )
+                    return RX.Observable.from(policies)
+                        .concat(this.awsListPolicies(value.Marker))
                 } else {
-                    return RX.Observable.of(value.Policies)
+                    return RX.Observable.from(policies)
                 }
             })
     }
 
 
-    awsListUsers(marker?: string): RX.Observable<AWS.IAM.User[]> {
+    awsGetUser(username: string): RX.Observable<AWS.IAM.User> {
+        return RX.Observable.fromPromise(this.iamCli.getUser({ UserName: username }).promise())
+            .map((value, index) => value.User)
+    }
+
+    awsListUsers(marker?: string): RX.Observable<AWS.IAM.User> {
         var params: AWS.IAM.ListUsersRequest = { MaxItems: 1000 }
         if (marker != null) {
             params.Marker = marker
         }
         return RX.Observable.fromPromise(this.iamCli.listUsers(params).promise())
             .concatMap((value, index) => {
+                var users = value.Users ? value.Users : []
                 if (value.IsTruncated) {
-                    return RX.Observable.zip(
-                        RX.Observable.of(value.Users),
-                        this.awsListUsers(value.Marker),
-                        (input: AWS.IAM.User[], output: AWS.IAM.User[]) => {
-                            var series: AWS.IAM.User[] = [];
-                            return series.concat(...input, ...output)
-                        }
-                    )
+                    return RX.Observable.from(users)
+                        .concat(this.awsListUsers(value.Marker))
                 } else {
-                    return RX.Observable.of(value.Users)
+                    return RX.Observable.from(value.Users)
                 }
             })
     }
 
+    awsCreateUser(username: string): RX.Observable<AWS.IAM.User> {
+        var params: AWS.IAM.CreateUserRequest = { UserName: username, Path: '/emails/' }
+        return RX.Observable.fromPromise(this.iamCli.createUser(params).promise())
+            .concatMap((value, index) => {
+                if (value.User) {
+                    return RX.Observable.of(value.User)
+                }
+                return RX.Observable.empty()
+            })
+    }
 
-    awsListGroups(marker?: string): RX.Observable<AWS.IAM.Group[]> {
+    awsDeleteUser(username:string): RX.Observable<null>{
+        var params: AWS.IAM.DeleteUserRequest = { UserName: username}
+    }
+
+    awsGetGroup(groupname: string): RX.Observable<AWS.IAM.Group> {
+        return RX.Observable.fromPromise(this.iamCli.getGroup({ GroupName: groupname }).promise())
+            .map((value, index) => value.Group)
+    }
+
+    awsListGroups(marker?: string): RX.Observable<AWS.IAM.Group> {
         var params: AWS.IAM.ListGroupsRequest = { MaxItems: 1000 }
         if (marker != null) {
             params.Marker = marker
@@ -193,21 +209,15 @@ class AWSStore {
         return RX.Observable.fromPromise(this.iamCli.listGroups(params).promise())
             .concatMap((value, index) => {
                 if (value.IsTruncated) {
-                    return RX.Observable.zip(
-                        RX.Observable.of(value.Groups),
-                        this.awsListGroups(value.Marker),
-                        (input: AWS.IAM.Group[], output: AWS.IAM.Group[]) => {
-                            var series: AWS.IAM.Group[] = [];
-                            return series.concat(...input, ...output)
-                        }
-                    )
+                    return RX.Observable.from(value.Groups)
+                        .concat(this.awsListGroups(value.Marker))
                 } else {
-                    return RX.Observable.of(value.Groups)
+                    return RX.Observable.from(value.Groups)
                 }
             })
     }
 
-    awsListAttachedUserPolicies(username: string, marker?: string): RX.Observable<string[]> {
+    awsListAttachedUserPolicies(username: string, marker?: string): RX.Observable<string> {
         var params: AWS.IAM.ListAttachedUserPoliciesRequest = { MaxItems: 1000, UserName: username }
         if (marker) {
             params.Marker = marker
@@ -215,7 +225,7 @@ class AWSStore {
         return RX.Observable.fromPromise(this.iamCli.listAttachedUserPolicies(params).promise())
             .concatMap((value, index) => {
                 if (!value.AttachedPolicies) {
-                    return RX.Observable.of([])
+                    return RX.Observable.from([])
                 }
                 var policies: string[] = []
                 for (let attachedPolicy of value.AttachedPolicies) {
@@ -226,21 +236,15 @@ class AWSStore {
                     policies.push(attachedPolicy.PolicyArn)
                 }
                 if (value.IsTruncated) {
-                    return RX.Observable.zip(
-                        RX.Observable.of(policies),
-                        this.awsListAttachedUserPolicies(username, value.Marker),
-                        (input: string[], output: string[]) => {
-                            var series: string[] = [];
-                            return series.concat(...input, ...output)
-                        }
-                    )
+                    return RX.Observable.from(policies)
+                        .concat(this.awsListAttachedUserPolicies(username, value.Marker))
                 } else {
-                    return RX.Observable.of(policies)
+                    return RX.Observable.from(policies)
                 }
             })
     }
 
-    awsListAttachedGroupPolicies(groupname: string, marker?: string): RX.Observable<string[]> {
+    awsListAttachedGroupPolicies(groupname: string, marker?: string): RX.Observable<string> {
         var params: AWS.IAM.ListAttachedGroupPoliciesRequest = { MaxItems: 1000, GroupName: groupname }
         if (marker) {
             params.Marker = marker
@@ -248,7 +252,7 @@ class AWSStore {
         return RX.Observable.fromPromise(this.iamCli.listAttachedGroupPolicies(params).promise())
             .concatMap((value, index) => {
                 if (!value.AttachedPolicies) {
-                    return RX.Observable.of([])
+                    return RX.Observable.from([])
                 }
                 var policies: string[] = []
                 for (let attachedPolicy of value.AttachedPolicies) {
@@ -259,23 +263,17 @@ class AWSStore {
                     policies.push(attachedPolicy.PolicyArn)
                 }
                 if (value.IsTruncated) {
-                    return RX.Observable.zip(
-                        RX.Observable.of(policies),
-                        this.awsListAttachedGroupPolicies(groupname, value.Marker),
-                        (input: string[], output: string[]) => {
-                            var series: string[] = [];
-                            return series.concat(...input, ...output)
-                        }
-                    )
+                    return RX.Observable.from(policies)
+                        .concat(this.awsListAttachedGroupPolicies(groupname, value.Marker))
                 } else {
-                    return RX.Observable.of(policies)
+                    return RX.Observable.from(policies)
                 }
             })
 
     }
+
     refreshUsers(): RX.Observable<Map<AWS.IAM.User, string[]>> {
         return this.awsListUsers()
-            .concatMap((value, index) => RX.Observable.from(value))
             .concatMap((value: AWS.IAM.User, index) => {
                 return RX.Observable.zip(
                     RX.Observable.of(value),
@@ -285,15 +283,10 @@ class AWSStore {
                     }
                 )
             })
-            .reduce((acc: Map<AWS.IAM.User, string[]>, value: Map<AWS.IAM.User, string[]>) => {
-                return new Map([...acc, ...value])
-            })
-            .do(value => this.users = value)
     }
 
     refreshGroups(): RX.Observable<Map<AWS.IAM.Group, string[]>> {
         return this.awsListGroups()
-            .concatMap((value, index) => RX.Observable.from(value))
             .concatMap((value: AWS.IAM.Group, index) => {
                 return RX.Observable.zip(
                     RX.Observable.of(value),
@@ -303,28 +296,56 @@ class AWSStore {
                     }
                 )
             })
-            .reduce((acc: Map<AWS.IAM.Group, string[]>, value: Map<AWS.IAM.Group, string[]>) => {
-                return new Map([...acc, ...value])
-            })
-            .do(value => this.groups = value)
     }
 
     refreshStore(): RX.Observable<boolean> {
         return RX.Observable.zip(
             this.refreshUsers(),
             this.refreshGroups(),
-            this.awsListPolicies(),
-            (users, groups, policies) => {
-                this.policies = policies
+            (users, groups) => {
                 return true
             }
         )
     }
 }
 
-var awsstore = new AWSStore()
+class AWSStore {
+    store: any
+    binding: AWSBinding
+    policies: AWS.IAM.Policy[]
+    users: Map<AWS.IAM.User, string[]>
+    groups: Map<AWS.IAM.Group, string[]>
+
+    constructor() {
+        this.binding = new AWSBinding()
+        this.store = RD.createStore(
+            this.createRootReducer(),
+            RD.applyMiddleware(
+                RO.createEpicMiddleware(this.createRootEpic())
+            )
+        )
+    }
+    createRootReducer(): any {
+
+    }
+    createRootEpic(): any {
+
+    }
+
+    policyEpic() {
+
+    }
+
+    createUser(username) {
+
+    }
+}
+
+
+
+var awsstore = new AWSBinding()
 awsstore
-    .refreshUsers()
+    .awsListPolicies()
     .subscribe(
     (next) => console.log(`Received`, next),
     (error) => console.log(`Error`, error),
