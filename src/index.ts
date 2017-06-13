@@ -2,6 +2,7 @@ import * as AWS from "aws-sdk"
 import * as RX from "rxjs"
 import * as RD from "redux"
 import * as RO from "redux-observable"
+import * as IM from "immutable"
 
 
 class Resource {
@@ -127,13 +128,9 @@ class Group {
 class AWSBinding {
     iamCli: AWS.IAM
     awsStore: AWSStore
-    lastUpdate: number
-    delaySeconds: number
 
     constructor(delaySeconds?: number) {
         this.iamCli = new AWS.IAM()
-        this.delaySeconds = delaySeconds || 300;
-        this.lastUpdate = 0;
     }
 
     awsGetPolicy(): RX.Observable<AWS.IAM.Policy> {
@@ -161,11 +158,16 @@ class AWSBinding {
 
     awsGetUser(username: string): RX.Observable<AWS.IAM.User> {
         return RX.Observable.fromPromise(this.iamCli.getUser({ UserName: username }).promise())
-            .map((value, index) => value.User)
+            .concatMap((value, index) => {
+                if (value.User.Path.startsWith('/emails/')) {
+                    return RX.Observable.of(value.User)
+                }
+                return RX.Observable.empty()
+            })
     }
 
     awsListUsers(marker?: string): RX.Observable<AWS.IAM.User> {
-        var params: AWS.IAM.ListUsersRequest = { MaxItems: 1000 }
+        var params: AWS.IAM.ListUsersRequest = { MaxItems: 1000, PathPrefix: '/emails/' }
         if (marker != null) {
             params.Marker = marker
         }
@@ -176,7 +178,7 @@ class AWSBinding {
                     return RX.Observable.from(users)
                         .concat(this.awsListUsers(value.Marker))
                 } else {
-                    return RX.Observable.from(value.Users)
+                    return RX.Observable.from(users)
                 }
             })
     }
@@ -192,13 +194,25 @@ class AWSBinding {
             })
     }
 
-    awsDeleteUser(username:string): RX.Observable<null>{
-        var params: AWS.IAM.DeleteUserRequest = { UserName: username}
+    awsDeleteUser(username: string): RX.Observable<{}> {
+        var params: AWS.IAM.DeleteUserRequest = { UserName: username }
+        return RX.Observable.fromPromise(this.iamCli.deleteUser(params).promise())
+            .concatMap((value, index) => {
+                return RX.Observable.empty()
+            })
     }
 
-    awsGetGroup(groupname: string): RX.Observable<AWS.IAM.Group> {
+    awsGetGroup(groupname: string): RX.Observable<Map<AWS.IAM.Group, AWS.IAM.User[]>> {
         return RX.Observable.fromPromise(this.iamCli.getGroup({ GroupName: groupname }).promise())
-            .map((value, index) => value.Group)
+            .concatMap((value, index) => {
+                var groupResult: Map<AWS.IAM.Group, AWS.IAM.User[]> = new Map([[value.Group, value.Users]])
+                if (value.IsTruncated) {
+                    return RX.Observable.of(groupResult)
+                        .concat(this.awsListGroups(value.Marker))
+                } else {
+                    return RX.Observable.of(groupResult)
+                }
+            })
     }
 
     awsListGroups(marker?: string): RX.Observable<AWS.IAM.Group> {
@@ -216,6 +230,42 @@ class AWSBinding {
                 }
             })
     }
+
+    awsCreateGroup(username: string): RX.Observable<AWS.IAM.Group> {
+        var params: AWS.IAM.CreateGroupRequest = { GroupName: username, Path: '/emails/' }
+        return RX.Observable.fromPromise(this.iamCli.createGroup(params).promise())
+            .concatMap((value, index) => {
+                if (value.Group) {
+                    return RX.Observable.of(value.Group)
+                }
+                return RX.Observable.empty()
+            })
+    }
+
+    awsDeleteGroup(groupname: string): RX.Observable<{}> {
+        var params: AWS.IAM.DeleteGroupRequest = { GroupName: groupname }
+        return RX.Observable.fromPromise(this.iamCli.deleteGroup(params).promise())
+            .concatMap((value, index) => {
+                return RX.Observable.empty()
+            })
+    }
+
+    awsAttachUserPolicy(username: string, policyArn: string): RX.Observable<{}> {
+        var params: AWS.IAM.AttachUserPolicyRequest = { PolicyArn: policyArn, UserName: username }
+        return RX.Observable.fromPromise(this.iamCli.attachUserPolicy(params).promise())
+            .concatMap((value, index) => {
+                return RX.Observable.empty()
+            })
+    }
+
+    awsDetachUserPolicy(username: string, policyArn: string): RX.Observable<{}> {
+        var params: AWS.IAM.DetachUserPolicyRequest = { PolicyArn: policyArn, UserName: username }
+        return RX.Observable.fromPromise(this.iamCli.detachUserPolicy(params).promise())
+            .concatMap((value, index) => {
+                return RX.Observable.empty()
+            })
+    }
+
 
     awsListAttachedUserPolicies(username: string, marker?: string): RX.Observable<string> {
         var params: AWS.IAM.ListAttachedUserPoliciesRequest = { MaxItems: 1000, UserName: username }
@@ -241,6 +291,22 @@ class AWSBinding {
                 } else {
                     return RX.Observable.from(policies)
                 }
+            })
+    }
+
+    awsAttachGroupPolicy(groupname: string, policyArn: string): RX.Observable<{}> {
+        var params: AWS.IAM.AttachGroupPolicyRequest = { PolicyArn: policyArn, GroupName: groupname }
+        return RX.Observable.fromPromise(this.iamCli.attachGroupPolicy(params).promise())
+            .concatMap((value, index) => {
+                return RX.Observable.empty()
+            })
+    }
+
+    awsDetachGroupPolicy(groupname: string, policyArn: string): RX.Observable<{}> {
+        var params: AWS.IAM.DetachGroupPolicyRequest = { PolicyArn: policyArn, GroupName: groupname }
+        return RX.Observable.fromPromise(this.iamCli.attachGroupPolicy(params).promise())
+            .concatMap((value, index) => {
+                return RX.Observable.empty()
             })
     }
 
@@ -309,14 +375,42 @@ class AWSBinding {
     }
 }
 
+// Actions
+const CREATE_USER = 'CREATE_USER'
+
+interface UserAction {
+    type: string,
+    payload: {
+        username: string,
+    }
+}
+
+interface UserState {
+    readonly users: AWS.IAM.User[],
+    readonly processingUsers: Map<string, string>,
+}
+
+function userReducer(state: UserState = { users: [], processingUsers: new Map() }, action: UserAction): UserState {
+    var imstate: IM.Collection<UserState> = IM.fromJS(state)
+    switch (action.type) {
+        case CREATE_USER:
+            return imstate.setIn
+        default:
+            return imstate
+    }
+}
+
 class AWSStore {
     store: any
     binding: AWSBinding
     policies: AWS.IAM.Policy[]
     users: Map<AWS.IAM.User, string[]>
     groups: Map<AWS.IAM.Group, string[]>
+    lastUpdate: number
+    delaySeconds: number
 
-    constructor() {
+
+    constructor(delaySeconds: number) {
         this.binding = new AWSBinding()
         this.store = RD.createStore(
             this.createRootReducer(),
@@ -324,6 +418,8 @@ class AWSStore {
                 RO.createEpicMiddleware(this.createRootEpic())
             )
         )
+        this.delaySeconds = delaySeconds || 300;
+        this.lastUpdate = 0;
     }
     createRootReducer(): any {
 
@@ -332,11 +428,9 @@ class AWSStore {
 
     }
 
-    policyEpic() {
 
-    }
+    createUser(username: string) {
 
-    createUser(username) {
 
     }
 }
