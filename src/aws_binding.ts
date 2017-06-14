@@ -3,11 +3,9 @@ import * as RX from "rxjs"
 import * as RD from "redux"
 import * as RO from "redux-observable"
 import * as IM from "immutable"
-import {} from "./models"
 
-class AWSBinding {
+export class AWSBinding {
     iamCli: AWS.IAM
-    awsStore: AWSStore
 
     constructor(delaySeconds?: number) {
         this.iamCli = new AWS.IAM()

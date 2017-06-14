@@ -1,5 +1,5 @@
 
-class Resource {
+export class Resource {
     name: string;
 
     constructor(name: string) {
@@ -7,7 +7,7 @@ class Resource {
     }
 }
 
-class Action {
+export class Action {
     name: string;
 
     constructor(name: string) {
@@ -15,7 +15,7 @@ class Action {
     }
 }
 
-class Policy {
+export class Policy {
     name: string;
     actions: Action[];
     resources: Resource[];
@@ -55,7 +55,7 @@ class Policy {
     }
 }
 
-class User {
+export class User {
     email: string;
     policies: Policy[];
 
@@ -79,7 +79,7 @@ class User {
     }
 }
 
-class Group {
+export class Group {
     name: string;
     users: User[];
     policies: Policy[];
